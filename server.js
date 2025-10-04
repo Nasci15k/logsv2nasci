@@ -1,14 +1,14 @@
-// server.js (Versão Final e Estável para SSE - Chamando HTTPS)
+// server.js (Versão Definitiva: Proxy HTTPS para HTTP)
 const express = require('express');
-const https = require('https'); // AGORA USAMOS HTTPS
+const http = require('http'); // 🟢 CORREÇÃO: Voltamos a usar HTTP
 const url = require('url');
 const cors = require('cors'); 
 
 const app = express();
 const PORT = process.env.PORT || 3000; 
 
-// URL da API externa (CORREÇÃO FINAL: INCLUI ?url= no final)
-const EXTERNAL_API_BASE = 'https://patronhost.online/logs/api_sse.php?url=';
+// URL da API externa (CORREÇÃO FINAL: Usando HTTP e incluindo ?url=)
+const EXTERNAL_API_BASE = 'http://patronhost.online/logs/api_sse.php?url=';
 
 // Permite conexões do Netlify
 app.use(cors());
@@ -28,7 +28,7 @@ app.get('/api/logs', (req, res) => {
         return res.status(400).send('Missing "url" query parameter.');
     }
 
-    // 🟢 CORRIGIDO: A URL de destino é o BASE (?url=) + o valor da busca.
+    // Monta a URL completa: http://patronhost.online/logs/api_sse.php?url=gov.br
     const targetUrl = `${EXTERNAL_API_BASE}${encodeURIComponent(queryParam)}`;
     const parsedUrl = url.parse(targetUrl);
     
@@ -36,7 +36,7 @@ app.get('/api/logs', (req, res) => {
 
     const options = {
         hostname: parsedUrl.hostname,
-        port: 443, // Porta padrão HTTPS
+        port: 80, // 🟢 CORREÇÃO: Porta padrão HTTP
         path: parsedUrl.path,
         method: 'GET',
         timeout: 0, 
@@ -50,12 +50,12 @@ app.get('/api/logs', (req, res) => {
     
     let sseHeadersSent = false; 
 
-    // Faz a requisição HTTPS
-    const proxyReq = https.request(options, (proxyRes) => {
+    // 🟢 CORREÇÃO: Faz a requisição HTTP
+    const proxyReq = http.request(options, (proxyRes) => {
         
         if (proxyRes.statusCode !== 200) {
             
-            const errorMsg = `API Externa retornou Status ${proxyRes.statusCode}. Verifique se a API está no ar.`;
+            const errorMsg = `API Externa retornou Status ${proxyRes.statusCode}. (URL requisitada: ${targetUrl})`;
             console.error(errorMsg);
             
             res.writeHead(200, {
