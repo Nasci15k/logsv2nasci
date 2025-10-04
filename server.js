@@ -1,6 +1,6 @@
 // server.js (Versão Final e Estável para SSE)
 const express = require('express');
-const http = require('http'); 
+const https = require('https'); 
 const url = require('url');
 const cors = require('cors'); 
 
@@ -8,7 +8,7 @@ const app = express();
 const PORT = process.env.PORT || 3000; 
 
 // URL da API externa (que usa HTTP)
-const EXTERNAL_API_BASE = 'http://patronhost.online/logs/api_sse.php';
+const EXTERNAL_API_BASE = 'https://patronhost.online/logs/api_sse.php';
 
 // Permite conexões do Netlify
 app.use(cors());
@@ -118,3 +118,4 @@ const server = app.listen(PORT, () => {
 });
 
 server.setTimeout(0);
+
