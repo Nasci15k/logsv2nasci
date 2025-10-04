@@ -1,20 +1,18 @@
-// server.js (Versão Final e Estável para SSE)
+// server.js (Versão Final e Estável para SSE - Chamando HTTPS)
 const express = require('express');
-const https = require('https'); 
+const https = require('https'); // AGORA USAMOS HTTPS
 const url = require('url');
 const cors = require('cors'); 
 
 const app = express();
 const PORT = process.env.PORT || 3000; 
 
-// URL da API externa (que usa HTTP)
-const EXTERNAL_API_BASE = 'https://patronhost.online/logs/api_sse.php';
+// URL da API externa (CORREÇÃO FINAL: INCLUI ?url= no final)
+const EXTERNAL_API_BASE = 'https://patronhost.online/logs/api_sse.php?url=';
 
 // Permite conexões do Netlify
 app.use(cors());
 
-// Desativa o timeout do servidor Express
-// Removemos a linha problemática do 'compress'
 app.timeout = 0; 
 
 app.get('/api/logs', (req, res) => {
@@ -30,14 +28,15 @@ app.get('/api/logs', (req, res) => {
         return res.status(400).send('Missing "url" query parameter.');
     }
 
-    const targetUrl = `${EXTERNAL_API_BASE}?url=${encodeURIComponent(queryParam)}`;
+    // 🟢 CORRIGIDO: A URL de destino é o BASE (?url=) + o valor da busca.
+    const targetUrl = `${EXTERNAL_API_BASE}${encodeURIComponent(queryParam)}`;
     const parsedUrl = url.parse(targetUrl);
     
     console.log(`Proxying request to: ${targetUrl}`);
 
     const options = {
         hostname: parsedUrl.hostname,
-        port: 80, 
+        port: 443, // Porta padrão HTTPS
         path: parsedUrl.path,
         method: 'GET',
         timeout: 0, 
@@ -45,19 +44,18 @@ app.get('/api/logs', (req, res) => {
             'User-Agent': 'Node-Proxy-Service',
             'Connection': 'keep-alive',
             'Host': parsedUrl.hostname,
-            // Importante: Desativa a codificação de transferência para streams
             'Transfer-Encoding': 'identity'
         }
     };
     
     let sseHeadersSent = false; 
 
-    const proxyReq = http.request(options, (proxyRes) => {
+    // Faz a requisição HTTPS
+    const proxyReq = https.request(options, (proxyRes) => {
         
-        // 🚨 VERIFICAÇÃO DE STATUS HTTP
         if (proxyRes.statusCode !== 200) {
             
-            const errorMsg = `API Externa retornou Status ${proxyRes.statusCode}.`;
+            const errorMsg = `API Externa retornou Status ${proxyRes.statusCode}. Verifique se a API está no ar.`;
             console.error(errorMsg);
             
             res.writeHead(200, {
@@ -70,15 +68,12 @@ app.get('/api/logs', (req, res) => {
             return res.end();
         }
 
-        // 🟢 SE O STATUS FOR 200, FORÇA OS CABEÇALHOS SSE NA RESPOSTA
         if (!sseHeadersSent) {
             res.writeHead(200, {
-                // Essenciais para SSE
                 'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache',
                 'Connection': 'keep-alive',
                 'Access-Control-Allow-Origin': '*',
-                // Prevê qualquer interferência de Express/Node
                 'Transfer-Encoding': 'identity' 
             });
             sseHeadersSent = true;
@@ -118,4 +113,3 @@ const server = app.listen(PORT, () => {
 });
 
 server.setTimeout(0);
-
