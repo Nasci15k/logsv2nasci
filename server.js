@@ -1,4 +1,4 @@
-// server.js (Revisado para evitar timeout e forçar conexão)
+// server.js (Versão Definitiva para SSE)
 const express = require('express');
 const http = require('http'); 
 const url = require('url');
@@ -7,21 +7,23 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000; 
 
-// URL da API externa (HTTP)
+// URL da API externa (que usa HTTP)
 const EXTERNAL_API_BASE = 'http://patronhost.online/logs/api_sse.php';
 
 // Permite conexões do Netlify
 app.use(cors());
 
-// DESATIVA o timeout do servidor Express a nível da aplicação
+// Desativa o timeout do servidor Express
 app.timeout = 0; 
+// Desativa o middleware de compressão (muitas vezes quebra o SSE)
+app.use(express.compress ? express.compress() : (req, res, next) => next()); 
 
 app.get('/api/logs', (req, res) => {
     
-    // Configurações de conexão para o CLIENTE (Netlify)
+    // Configurações de conexão de rede para o CLIENTE (Netlify)
     req.socket.setTimeout(0); 
     req.socket.setNoDelay(true);
-    req.socket.setKeepAlive(true, 10000); // Força Keep-Alive de 10s
+    req.socket.setKeepAlive(true, 10000); 
 
     const queryParam = req.query.url; 
     
@@ -36,50 +38,75 @@ app.get('/api/logs', (req, res) => {
 
     const options = {
         hostname: parsedUrl.hostname,
-        port: 80, // Porta padrão HTTP
+        port: 80, 
         path: parsedUrl.path,
         method: 'GET',
-        // Desativa o timeout para a requisição externa
         timeout: 0, 
         headers: {
             'User-Agent': 'Node-Proxy-Service',
             'Connection': 'keep-alive',
-            'Host': parsedUrl.hostname 
+            'Host': parsedUrl.hostname,
+            // Importante: Desativa a codificação de transferência para streams
+            'Transfer-Encoding': 'identity'
         }
     };
-
-    // Configura os cabeçalhos SSE para o cliente Netlify
-    res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*' 
-    });
     
-    // Faz a requisição HTTP para a API externa
+    let sseHeadersSent = false; 
+
     const proxyReq = http.request(options, (proxyRes) => {
-        // Quando a API externa envia dados, encaminha para o cliente Netlify
+        
+        // 🚨 VERIFICAÇÃO DE STATUS HTTP
+        if (proxyRes.statusCode !== 200) {
+            
+            const errorMsg = `API Externa retornou Status ${proxyRes.statusCode}.`;
+            console.error(errorMsg);
+            
+            res.writeHead(200, {
+                'Content-Type': 'text/event-stream',
+                'Connection': 'close',
+                'Access-Control-Allow-Origin': '*' 
+            });
+            
+            res.write(`event: error\ndata: {"error": "${errorMsg}", "status": ${proxyRes.statusCode}}\n\n`);
+            return res.end();
+        }
+
+        // 🟢 SE O STATUS FOR 200, FORÇA OS CABEÇALHOS SSE NA RESPOSTA
+        if (!sseHeadersSent) {
+            res.writeHead(200, {
+                // Essenciais para SSE
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+                'Access-Control-Allow-Origin': '*',
+                // Prevê qualquer interferência de Express/Node
+                'Transfer-Encoding': 'identity' 
+            });
+            sseHeadersSent = true;
+        }
+
+        // Passa o stream de dados RAW
         proxyRes.pipe(res);
         
-        // Trata o fechamento da API externa.
         proxyRes.on('end', () => {
              console.log('External API stream ended.');
-             res.end();
+             if (sseHeadersSent) {
+                 res.end();
+             }
         });
     });
 
     // Lida com erros (ex: timeout, DNS)
     proxyReq.on('error', (e) => {
         console.error(`Proxy Request Error: ${e.message}`);
-        // Se a resposta ainda não foi enviada, envia erro 500
-        if (!res.headersSent) {
-             res.writeHead(500, {'Content-Type': 'text/plain'});
+        
+        if (!sseHeadersSent) {
+             res.writeHead(200, {'Content-Type': 'text/event-stream', 'Connection': 'close', 'Access-Control-Allow-Origin': '*'});
+             res.write(`event: error\ndata: {"error":"Falha na conexão com o servidor externo: ${e.message}"}\n\n`);
         }
-        // Envia um evento de erro para o EventSource do cliente
-        res.end(`event: error\ndata: {"error":"Failed to connect to external API: ${e.message}"}\n\n`);
+        res.end();
     });
 
-    // Aborta a requisição externa se o cliente fechar a conexão
     req.on('close', () => {
         proxyReq.abort(); 
     });
@@ -91,5 +118,4 @@ const server = app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
 
-// Força o servidor a não ter timeout (medida de segurança final)
 server.setTimeout(0);
