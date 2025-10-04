@@ -1,4 +1,4 @@
-// server.js (Versão Definitiva para SSE)
+// server.js (Versão Final e Estável para SSE)
 const express = require('express');
 const http = require('http'); 
 const url = require('url');
@@ -14,9 +14,8 @@ const EXTERNAL_API_BASE = 'http://patronhost.online/logs/api_sse.php';
 app.use(cors());
 
 // Desativa o timeout do servidor Express
+// Removemos a linha problemática do 'compress'
 app.timeout = 0; 
-// Desativa o middleware de compressão (muitas vezes quebra o SSE)
-app.use(express.compress ? express.compress() : (req, res, next) => next()); 
 
 app.get('/api/logs', (req, res) => {
     
